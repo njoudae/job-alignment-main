@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/analysismodal.tsx","./src/components/axisradarchart.tsx","./src/components/filedropzone.tsx","./src/components/scorebadge.tsx","./src/components/sectioncard.tsx","./src/components/selectfield.tsx","./src/services/api.ts","./src/types/index.ts","./src/utils/hierarchy.ts","./src/utils/reportadapter.ts"],"version":"5.9.3"}
