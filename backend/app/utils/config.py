@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     database_url: str = ""
     jobs_table: str = "jobs"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False)
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore")
 
 
 settings = Settings()
