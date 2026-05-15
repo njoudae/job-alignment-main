@@ -165,6 +165,54 @@ npm run build
 
 This runs the frontend TypeScript build and Vite production build through the root script.
 
+## Deploy On CranL
+
+Deploy this repository as two CranL applications from the same GitHub repo:
+
+Backend application:
+
+- Repository: `njoudae/job-alignment-main`
+- Branch: `main`
+- Build Type: `nixpacks` / auto-detect
+- Build Path: `/backend`
+- Start command: CranL/Nixpacks reads `backend/Procfile`
+- Health check: `/api/health`
+
+Backend environment variables:
+
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o
+FRONTEND_ORIGIN=https://your-frontend-app.cranl.net
+JOBS_FILE=./data/jobs.json
+MAX_PDF_SIZE_MB=20
+JOBS_TABLE=jobs
+```
+
+If using a CranL PostgreSQL database, create the database and inject `DATABASE_URL` into the backend app. Then import job data once from a local machine or CranL shell:
+
+```bash
+cd backend
+python scripts/import_jobs_to_neon.py
+```
+
+Frontend application:
+
+- Repository: `njoudae/job-alignment-main`
+- Branch: `main`
+- Build Type: `nixpacks` / auto-detect
+- Build Path: `/frontend`
+- Build command: `npm run build`
+- Start command: `npm run start`
+
+Frontend environment variables:
+
+```env
+VITE_API_BASE_URL=https://your-backend-app.cranl.net/api
+```
+
+After both apps deploy, update backend `FRONTEND_ORIGIN` with the final frontend CranL URL and redeploy/restart the backend.
+
 ## Troubleshooting
 
 Port already in use:
