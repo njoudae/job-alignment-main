@@ -11,10 +11,33 @@ from app.schemas.jobs import CleanedJob, HierarchyNode, JobHierarchyItem, JobHie
 from app.utils.config import settings
 from app.utils.text import infer_education_level, normalize_text, split_messy_field, split_skills, unique_clean_list, canonical_key
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_JOBS_PATH = BACKEND_ROOT / "data" / "jobs.json"
+
+
+def resolve_jobs_path(jobs_path: str) -> Path:
+    configured = Path(jobs_path)
+    candidates = []
+    if configured.is_absolute():
+        candidates.append(configured)
+    else:
+        candidates.extend([
+            Path.cwd() / configured,
+            BACKEND_ROOT / configured,
+            DEFAULT_JOBS_PATH,
+        ])
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+
+    return candidates[-1].resolve()
+
 
 class JobsService:
     def __init__(self, jobs_path: str) -> None:
-        self.jobs_path = Path(jobs_path)
+        self.configured_jobs_path = jobs_path
+        self.jobs_path = resolve_jobs_path(jobs_path)
         self._jobs_cache: list[CleanedJob] | None = None
         self._job_detail_cache: dict[str, CleanedJob] = {}
         self._hierarchy_cache: JobHierarchyResponse | None = None
@@ -260,6 +283,9 @@ class JobsService:
             "data_source": self._data_source,
             "database_configured": bool(settings.database_url),
             "jobs_table": settings.jobs_table if settings.database_url else None,
+            "configured_jobs_file": self.configured_jobs_path,
+            "resolved_jobs_file": str(self.jobs_path),
+            "jobs_file_exists": self.jobs_path.exists(),
             "total_jobs": len(jobs),
             "cache_status": self._cache_status,
         }
