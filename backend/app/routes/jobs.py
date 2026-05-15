@@ -14,6 +14,25 @@ def get_jobs_hierarchy() -> JobHierarchyResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("")
+def list_jobs(limit: int = Query(100, ge=1, le=1000)) -> dict:
+    try:
+        jobs = get_jobs_service().load_jobs()
+        items = [
+            {
+                "job_id": job.job_id,
+                "job_title": job.job_title,
+                "minimum_education": job.minimum_education,
+                "main_group": job.main_group,
+                "unit": job.unit,
+            }
+            for job in jobs[:limit]
+        ]
+        return {"items": items, "total": len(jobs)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.get("/source")
 def get_jobs_source() -> dict:
     try:

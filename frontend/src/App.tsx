@@ -90,8 +90,27 @@ export default function App() {
   useEffect(() => {
     jobsApi.getHierarchy()
       .then(setHierarchy)
-      .catch((err) => setError(err?.response?.data?.detail || t.errors.hierarchy));
-  }, [t.errors.hierarchy]);
+      .catch((err) => {
+        const detail = err?.response?.data?.detail;
+        if (err?.response?.status === 404) {
+          setError(
+            language === 'ar'
+              ? 'لم يتم العثور على نقطة تحميل بيانات الوظائف. تحقق من إعداد VITE_API_BASE_URL في Vercel.'
+              : 'Jobs dataset endpoint not found. Check VITE_API_BASE_URL in Vercel.'
+          );
+          return;
+        }
+        if (typeof detail === 'string' && detail.toLowerCase().includes('jobs file not found')) {
+          setError(
+            language === 'ar'
+              ? 'ملف بيانات الوظائف غير موجود في نشر الباكند.'
+              : 'Jobs dataset file is missing on the backend deployment.'
+          );
+          return;
+        }
+        setError(detail || t.errors.hierarchy);
+      });
+  }, [language, t.errors.hierarchy]);
 
   useEffect(() => {
     setSampleLoading(true);
