@@ -50,7 +50,7 @@ Important values:
 
 - `OPENAI_API_KEY`: required for analysis.
 - `OPENAI_MODEL`: defaults to `gpt-4o`.
-- `VITE_API_BASE_URL`: defaults to `http://localhost:8000/api`.
+- `VITE_API_BASE_URL`: defaults to `/api` for same-origin production deployment. Local Vite development proxies `/api` to the backend.
 - `FRONTEND_ORIGIN`: comma-separated local frontend origins allowed by CORS.
 - `JOBS_FILE`: defaults to `./data/jobs.json` relative to `backend`.
 - `DATABASE_URL`: optional Neon/Postgres source for jobs.
@@ -165,53 +165,84 @@ npm run build
 
 This runs the frontend TypeScript build and Vite production build through the root script.
 
-## Deploy On CranL
+## Docker: Single-Container Production Build
 
-Deploy this repository as two CranL applications from the same GitHub repo:
+The production deployment is one container and one public URL. The Docker build compiles the Vite frontend, copies `frontend/dist` into the runtime image, and runs FastAPI. FastAPI serves both API routes and the built frontend.
 
-Backend application:
+Build:
 
-- Repository: `njoudae/job-alignment-main`
-- Branch: `main`
-- Build Type: `nixpacks` / auto-detect
-- Build Path: `/backend`
-- Start command: CranL/Nixpacks reads `backend/Procfile`
-- Health check: `/api/health`
+```bash
+docker build -t academic-career-alignment .
+```
 
-Backend environment variables:
+Run:
+
+```bash
+docker run --rm -p 8000:8000 --env-file backend/.env academic-career-alignment
+```
+
+Open:
+
+```text
+http://localhost:8000
+```
+
+Production URL structure:
+
+- `/` serves the React/Vite app.
+- `/assets/*` serves built frontend assets.
+- `/api/*` serves backend API routes.
+- `/health` and `/api/health` return backend health status.
+- Unknown non-API routes return `index.html` for SPA routing.
+- Unknown `/api/*` routes return API 404 responses.
+
+Minimum production environment variables:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-4o
-FRONTEND_ORIGIN=https://your-frontend-app.cranl.net
 JOBS_FILE=./data/jobs.json
 MAX_PDF_SIZE_MB=20
 JOBS_TABLE=jobs
 ```
 
-If using a CranL PostgreSQL database, create the database and inject `DATABASE_URL` into the backend app. Then import job data once from a local machine or CranL shell:
+Optional database environment variables:
+
+```env
+DATABASE_URL=postgresql://...
+JOBS_TABLE=jobs
+```
+
+If using PostgreSQL, import job data once before or after deployment from a shell with `DATABASE_URL` set:
 
 ```bash
 cd backend
 python scripts/import_jobs_to_neon.py
 ```
 
-Frontend application:
+## Deploy One Container On CranL / Render / Railway / Lightsail
+
+Use this repository as a Dockerfile-based deployment:
 
 - Repository: `njoudae/job-alignment-main`
 - Branch: `main`
-- Build Type: `nixpacks` / auto-detect
-- Build Path: `/frontend`
-- Build command: `npm run build`
-- Start command: `npm run start`
+- Build type: Dockerfile
+- Dockerfile path: `Dockerfile`
+- Exposed/container port: use the platform `PORT` variable, default `8000`
+- Health check path: `/health` or `/api/health`
 
-Frontend environment variables:
+Set production environment variables in the platform dashboard:
 
 ```env
-VITE_API_BASE_URL=https://your-backend-app.cranl.net/api
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o
+JOBS_FILE=./data/jobs.json
+MAX_PDF_SIZE_MB=20
+DATABASE_URL=
+JOBS_TABLE=jobs
 ```
 
-After both apps deploy, update backend `FRONTEND_ORIGIN` with the final frontend CranL URL and redeploy/restart the backend.
+Do not create separate frontend/backend services for this deployment mode. The backend serves the built frontend from the same container.
 
 ## Troubleshooting
 
@@ -232,8 +263,9 @@ Missing API key:
 
 CORS error:
 
-- Confirm `VITE_API_BASE_URL=http://localhost:8000/api`.
-- Confirm `FRONTEND_ORIGIN` includes the frontend origin, for example `http://localhost:5173`.
+- In Docker/same-origin production, the browser calls `/api` on the same URL, so CORS is normally not involved.
+- In local Vite development, `/api` is proxied to `http://localhost:8000`.
+- If using a custom split setup later, confirm `FRONTEND_ORIGIN` includes the frontend origin.
 
 PDF upload error:
 
