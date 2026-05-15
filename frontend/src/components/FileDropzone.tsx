@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { FileText, FileUp, Plus, X } from 'lucide-react';
+import { translations, type Language } from '../i18n';
 import type { AnalysisScope, CourseEvidenceFile, SampleCourseFile } from '../types';
 
 interface Props {
@@ -10,42 +12,44 @@ interface Props {
   onRemove: (id: string) => void;
   onLabelChange: (id: string, label: string) => void;
   onUseSample: (filename: string) => void;
+  language: Language;
 }
 
 function formatFileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(2)} MB`;
 }
 
-function getScopeCopy(scope: AnalysisScope) {
+function getScopeCopy(scope: AnalysisScope, language: Language) {
+  const t = translations[language].fileDropzone;
   if (scope === 'Single Course') {
     return {
-      description: 'Choose one course specification PDF for the current analysis.',
+      description: t.singleDescription,
       addLabel: '',
-      filePrefix: 'Selected course: ',
+      filePrefix: t.selectedCourse,
       labelOptions: [],
     };
   }
   if (scope === 'Multiple Levels of Same Course') {
     return {
-      description: 'Choose PDFs for multiple levels of the same course.',
-      addLabel: 'Add another level',
+      description: t.levelsDescription,
+      addLabel: t.addAnotherLevel,
       filePrefix: '',
-      labelOptions: ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5', 'Level 6'],
+      labelOptions: t.labelOptions.level,
     };
   }
   if (scope === 'Related Courses Cluster') {
     return {
-      description: 'Choose PDFs for related courses in the same cluster.',
-      addLabel: 'Add next file',
+      description: t.clusterDescription,
+      addLabel: t.addNextFile,
       filePrefix: '',
-      labelOptions: ['Primary Course', 'Related Course 2', 'Related Course 3', 'Related Course 4', 'Next File'],
+      labelOptions: t.labelOptions.cluster,
     };
   }
   return {
-    description: 'Choose PDFs from the study plan evidence set.',
-    addLabel: 'Add next file',
+    description: t.planDescription,
+    addLabel: t.addNextFile,
     filePrefix: '',
-    labelOptions: ['Main Study Plan Course', 'Study Plan File 2', 'Study Plan File 3', 'Study Plan File 4', 'Next File'],
+    labelOptions: t.labelOptions.plan,
   };
 }
 
@@ -58,19 +62,44 @@ export default function FileDropzone({
   onRemove,
   onLabelChange,
   onUseSample,
+  language,
 }: Props) {
-  const scopeCopy = getScopeCopy(analysisScope);
+  const t = translations[language].fileDropzone;
+  const scopeCopy = getScopeCopy(analysisScope, language);
   const isSingleCourse = analysisScope === 'Single Course';
+  const [dragActive, setDragActive] = useState(false);
 
   return (
     <div className="space-y-4">
-      <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+      <div
+        className={`rounded-3xl border border-dashed p-6 transition ${
+          dragActive ? 'border-brand-500 bg-blue-50' : 'border-slate-300 bg-slate-50'
+        }`}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setDragActive(true);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+          setDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          if (event.currentTarget === event.target) setDragActive(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+          onAddFiles(event.dataTransfer.files);
+        }}
+      >
         <label className="flex cursor-pointer flex-col items-center gap-3 text-center">
           <div className="rounded-full bg-white p-4 shadow-soft">
             <FileUp className="h-6 w-6 text-brand-600" />
           </div>
           <div>
-            <p className="font-medium text-slate-800">Upload course specification PDF</p>
+            <p className="font-medium text-slate-800">{t.uploadTitle}</p>
             <p className="text-sm text-slate-500">{scopeCopy.description}</p>
           </div>
           <input
@@ -86,12 +115,12 @@ export default function FileDropzone({
       <div className="rounded-3xl border border-slate-200 bg-white p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Use sample course file</p>
-            <p className="text-xs text-slate-500">Demo PDFs are loaded from the backend sample_files folder.</p>
+            <p className="text-sm font-semibold text-slate-900">{t.sampleTitle}</p>
+            <p className="text-xs text-slate-500">{t.sampleDescription}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {sampleLoading ? (
-              <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-medium text-slate-500">Loading samples...</span>
+              <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-medium text-slate-500">{t.loadingSamples}</span>
             ) : sampleFiles.length ? (
               sampleFiles.map((sample) => (
                 <button
@@ -105,7 +134,7 @@ export default function FileDropzone({
                 </button>
               ))
             ) : (
-              <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">No sample PDFs found.</span>
+              <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">{t.noSamples}</span>
             )}
           </div>
         </div>
@@ -146,7 +175,7 @@ export default function FileDropzone({
                   {index === 0 ? scopeCopy.filePrefix : ''}
                   {item.name}
                 </p>
-                <p className="text-xs text-slate-500">{formatFileSize(item.size)}{item.sampleFileName ? ' - sample file' : ''}</p>
+                <p className="text-xs text-slate-500">{formatFileSize(item.size)}{item.sampleFileName ? ` - ${t.sampleFile}` : ''}</p>
               </div>
               {!isSingleCourse ? (
                 <select
@@ -163,7 +192,7 @@ export default function FileDropzone({
                 type="button"
                 onClick={() => onRemove(item.id)}
                 className="justify-self-start rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 sm:justify-self-end"
-                aria-label={`Remove ${item.name}`}
+                aria-label={`${t.remove} ${item.name}`}
               >
                 <X className="h-4 w-4" />
               </button>

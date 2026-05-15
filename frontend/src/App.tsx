@@ -4,7 +4,8 @@ import AnalysisModal from './components/AnalysisModal';
 import FileDropzone from './components/FileDropzone';
 import SectionCard from './components/SectionCard';
 import SelectField from './components/SelectField';
-import { courseApi, jobsApi, matchApi } from './services/api';
+import { courseApi, healthApi, jobsApi, matchApi } from './services/api';
+import { translations, type Language } from './i18n';
 import type {
   AcademicContext,
   AnalysisScope,
@@ -44,7 +45,13 @@ function courseEvidenceId(name: string) {
   return `${Date.now()}-${name}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function defaultEvidenceLabel(scope: AnalysisScope, index: number) {
+function defaultEvidenceLabel(scope: AnalysisScope, index: number, language: Language) {
+  if (language === 'ar') {
+    if (scope === 'Single Course') return 'المقرر الرئيس';
+    if (scope === 'Multiple Levels of Same Course') return `المستوى ${index + 1}`;
+    if (scope === 'Related Courses Cluster') return index === 0 ? 'المقرر الرئيس' : `مقرر مرتبط ${index + 1}`;
+    return index === 0 ? 'مقرر رئيس في الخطة' : `ملف خطة ${index + 1}`;
+  }
   if (scope === 'Single Course') return 'Main Course';
   if (scope === 'Multiple Levels of Same Course') return `Level ${index + 1}`;
   if (scope === 'Related Courses Cluster') return index === 0 ? 'Primary Course' : `Related Course ${index + 1}`;
@@ -52,6 +59,7 @@ function defaultEvidenceLabel(scope: AnalysisScope, index: number) {
 }
 
 export default function App() {
+  const [language, setLanguage] = useState<Language>('en');
   const [started, setStarted] = useState(false);
   const [hierarchy, setHierarchy] = useState<JobHierarchyResponse | null>(null);
   const [selected, setSelected] = useState<HierarchySelections>(defaultSelections);
@@ -64,13 +72,26 @@ export default function App() {
   const [result, setResult] = useState<MatchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  const [backendAvailable, setBackendAvailable] = useState<boolean | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const t = translations[language];
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+  }, [language]);
+
+  useEffect(() => {
+    healthApi.check()
+      .then(() => setBackendAvailable(true))
+      .catch(() => setBackendAvailable(false));
+  }, []);
 
   useEffect(() => {
     jobsApi.getHierarchy()
       .then(setHierarchy)
-      .catch((err) => setError(err?.response?.data?.detail || 'Failed to load jobs hierarchy.'));
-  }, []);
+      .catch((err) => setError(err?.response?.data?.detail || t.errors.hierarchy));
+  }, [t.errors.hierarchy]);
 
   useEffect(() => {
     setSampleLoading(true);
@@ -92,6 +113,14 @@ export default function App() {
   const jobs = useMemo(
     () => (hierarchy ? getJobs(hierarchy.items, selected.education, selected.mainGroup, selected.specialization, selected.unit) : []),
     [hierarchy, selected.education, selected.mainGroup, selected.specialization, selected.unit],
+  );
+  const trackSelectOptions = useMemo(
+    () => trackOptions.map((value) => ({ value, label: t.tracks[value as keyof typeof t.tracks] ?? value })),
+    [t],
+  );
+  const scopeSelectOptions = useMemo(
+    () => analysisScopes.map((value) => ({ value, label: t.scopes[value] })),
+    [t],
   );
 
   const handleSelectionChange = (field: keyof HierarchySelections, value: string) => {
@@ -117,7 +146,13 @@ export default function App() {
     }
     if (field === 'jobId') {
       setSelected((prev) => ({ ...prev, jobId: value }));
-      setSelectedJob(jobs.find((job) => job.job_id === value) ?? null);
+      const listJob = jobs.find((job) => job.job_id === value) ?? null;
+      setSelectedJob(listJob);
+      if (value) {
+        jobsApi.getDetail(value)
+          .then(setSelectedJob)
+          .catch((err) => setError(err?.response?.data?.detail || t.errors.detail));
+      }
     }
   };
 
@@ -132,7 +167,7 @@ export default function App() {
         id: courseEvidenceId(file.name),
         name: file.name,
         size: file.size,
-        label: defaultEvidenceLabel(academicContext.analysisScope, prev.length + index),
+        label: defaultEvidenceLabel(academicContext.analysisScope, prev.length + index, language),
         file,
       }));
       if (academicContext.analysisScope === 'Single Course') return additions;
@@ -152,7 +187,7 @@ export default function App() {
         id: courseEvidenceId(filename),
         name: filename,
         size: sample.size_bytes,
-        label: defaultEvidenceLabel(academicContext.analysisScope, academicContext.analysisScope === 'Single Course' ? 0 : prev.length),
+        label: defaultEvidenceLabel(academicContext.analysisScope, academicContext.analysisScope === 'Single Course' ? 0 : prev.length, language),
         sampleFileName: filename,
       },
     ]);
@@ -163,7 +198,7 @@ export default function App() {
     setAcademicContext((prev) => ({ ...prev, analysisScope }));
     setCourseFiles((prev) => {
       const scopedFiles = analysisScope === 'Single Course' ? prev.slice(0, 1) : prev;
-      return scopedFiles.map((item, index) => ({ ...item, label: defaultEvidenceLabel(analysisScope, index) }));
+      return scopedFiles.map((item, index) => ({ ...item, label: defaultEvidenceLabel(analysisScope, index, language) }));
     });
   };
 
@@ -179,12 +214,12 @@ export default function App() {
 
   const analyze = async () => {
     if (!selectedJob) {
-      setError('Please select a job profile first.');
+      setError(t.errors.noJob);
       return;
     }
     const primaryEvidence = courseFiles[0];
     if (!primaryEvidence) {
-      setError('Please upload a course specification PDF or choose a sample course file first.');
+      setError(t.errors.noFile);
       return;
     }
 
@@ -195,11 +230,11 @@ export default function App() {
         ? await courseApi.parseSample(primaryEvidence.sampleFileName)
         : await courseApi.parse(primaryEvidence.file as File);
       setParsedCourse(course);
-      const match = await matchApi.analyze(course.profile, selectedJob, academicContext);
+      const match = await matchApi.analyze(course.profile, selectedJob, academicContext, language);
       setResult(match);
       setModalOpen(true);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Analysis could not be completed. Please verify the API key, PDF content, and backend server.');
+      setError(err?.response?.data?.detail || t.errors.analysis);
     } finally {
       setLoading(false);
     }
@@ -210,24 +245,39 @@ export default function App() {
   if (!started) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#ffffff_0%,#eef4ff_100%)] px-6 py-10 text-slate-950">
+        <div className="absolute right-6 top-6 flex rounded-full border border-slate-200 bg-white p-1 text-sm shadow-soft">
+          <button
+            type="button"
+            onClick={() => setLanguage('en')}
+            className={`rounded-full px-4 py-2 font-semibold ${language === 'en' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            {t.languageEnglish}
+          </button>
+          <button
+            type="button"
+            onClick={() => setLanguage('ar')}
+            className={`rounded-full px-4 py-2 font-semibold ${language === 'ar' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            {t.languageArabic}
+          </button>
+        </div>
         <section className="w-full max-w-4xl text-center">
           <img
             src="/project-logo.jpg"
             alt="Project logo"
             className="mx-auto h-auto w-full max-w-md object-contain mix-blend-multiply"
           />
-          <p className="mt-8 text-sm font-semibold uppercase tracking-[0.24em] text-brand-600">Academic-Career Alignment</p>
-          <h1 className="mt-3 text-4xl font-bold tracking-tight text-slate-950 md:text-6xl">Alignment Analyzer</h1>
+          <p className="mt-8 text-sm font-semibold uppercase tracking-[0.24em] text-brand-600">{t.introEyebrow}</p>
+          <h1 className="mt-3 text-4xl font-bold tracking-tight text-slate-950 md:text-6xl">{t.introTitle}</h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-8 text-slate-600 md:text-lg">
-            A decision-support system that compares academic course evidence with job profile requirements to highlight alignment indicators,
-            development areas, and suggested enhancements.
+            {t.introDescription}
           </p>
           <button
             type="button"
             onClick={() => setStarted(true)}
             className="mt-8 rounded-2xl bg-brand-600 px-10 py-4 text-base font-semibold text-white shadow-soft transition hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-blue-100"
           >
-            Start
+            {t.start}
           </button>
         </section>
       </main>
@@ -242,9 +292,9 @@ export default function App() {
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-blue-50">
               <Loader2 className="h-8 w-8 animate-spin text-blue-700" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900">Analyzing Academic-Career Alignment</h2>
+            <h2 className="text-xl font-bold text-slate-900">{t.loadingTitle}</h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              The system is extracting course evidence, reviewing the selected job profile, and preparing a decision-support report.
+              {t.loadingBody}
             </p>
           </div>
         </div>
@@ -254,21 +304,38 @@ export default function App() {
         <header className="mb-8 rounded-[32px] border border-white/60 bg-white/80 p-8 shadow-soft backdrop-blur">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="mb-2 text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">Local AI Alignment System</p>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-950 lg:text-5xl">Academic-Career Alignment Analyzer</h1>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-950 lg:text-5xl">{t.appName}</h1>
               <p className="mt-4 max-w-3xl text-slate-600">
-                A decision-support tool that compares evidence from uploaded course specifications with Saudi job profile requirements,
-                highlighting alignment indicators, development areas, and suggested enhancements.
+                {t.description}
+              </p>
+              <p className={`mt-3 text-sm font-medium ${backendAvailable ? 'text-emerald-700' : backendAvailable === false ? 'text-rose-700' : 'text-slate-500'}`}>
+                {backendAvailable ? t.backendOnline : backendAvailable === false ? t.backendOffline : ''}
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm lg:w-[360px]">
+            <div className="grid grid-cols-2 gap-3 text-sm lg:w-[420px]">
+              <div className="col-span-2 inline-flex w-fit justify-self-end rounded-full border border-slate-200 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setLanguage('en')}
+                  className={`rounded-full px-4 py-2 font-semibold ${language === 'en' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  {t.languageEnglish}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLanguage('ar')}
+                  className={`rounded-full px-4 py-2 font-semibold ${language === 'ar' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  {t.languageArabic}
+                </button>
+              </div>
               <div className="rounded-2xl bg-slate-900 p-4 text-white">
-                <p className="text-slate-300">Loaded Jobs</p>
+                <p className="text-slate-300">{t.loadedJobs}</p>
                 <p className="mt-2 text-2xl font-semibold">{hierarchy?.total_jobs ?? '-'}</p>
               </div>
               <div className="rounded-2xl bg-brand-600 p-4 text-white">
-                <p className="text-blue-100">Workflow</p>
-                <p className="mt-2 text-lg font-semibold">Select, Upload, Analyze</p>
+                <p className="text-blue-100">{t.workflow}</p>
+                <p className="mt-2 text-lg font-semibold">{t.workflowValue}</p>
               </div>
             </div>
           </div>
@@ -277,55 +344,61 @@ export default function App() {
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-6">
             <SectionCard
-              title="1. Select Job Profile"
-              subtitle="Hierarchical selection based on cleaned Saudi occupation data."
+              title={t.selectJobTitle}
+              subtitle={t.selectJobSubtitle}
               icon={<BriefcaseBusiness className="h-5 w-5" />}
+              required
             >
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <SelectField
-                  label="Minimum Education"
+                  label={t.minimumEducation}
                   value={selected.education}
                   onChange={(value) => handleSelectionChange('education', value)}
                   options={hierarchy?.education_options.map((item) => item.value) ?? []}
-                  placeholder="Select education"
+                  placeholder={t.selectEducation}
+                  required
                 />
                 <SelectField
-                  label="Main Group / Domain"
+                  label={t.mainGroup}
                   value={selected.mainGroup}
                   onChange={(value) => handleSelectionChange('mainGroup', value)}
                   options={mainGroups}
-                  placeholder="Select main group"
+                  placeholder={t.selectMainGroup}
                   disabled={!selected.education}
+                  required
                 />
                 <SelectField
-                  label="Specialization"
+                  label={t.specialization}
                   value={selected.specialization}
                   onChange={(value) => handleSelectionChange('specialization', value)}
                   options={specializations}
-                  placeholder="Select specialization"
+                  placeholder={t.selectSpecialization}
                   disabled={!selected.mainGroup}
+                  required
                 />
                 <SelectField
-                  label="Unit"
+                  label={t.unit}
                   value={selected.unit}
                   onChange={(value) => handleSelectionChange('unit', value)}
                   options={units}
-                  placeholder="Select unit"
+                  placeholder={t.selectUnit}
                   disabled={!selected.specialization}
+                  required
                 />
                 <SelectField
-                  label="Final Job"
+                  label={t.finalJob}
                   value={selected.jobId}
                   onChange={(value) => handleSelectionChange('jobId', value)}
                   options={jobs.map((job) => ({ value: job.job_id, label: `${job.job_id} - ${job.job_title}` }))}
-                  placeholder="Select final job"
+                  placeholder={t.selectFinalJob}
                   disabled={!selected.unit}
+                  required
                 />
               </div>
 
               {selected.unit && jobs.length > 0 ? (
                 <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-                  <p className="font-medium text-slate-800">Available Jobs in This Branch</p>
+                  <p className="font-medium text-slate-800">{t.availableJobs}</p>
                   <ul className="mt-2 list-disc space-y-1 ps-5">
                     {jobs.map((job) => (
                       <li key={job.job_id}>{job.job_id} - {job.job_title}</li>
@@ -336,46 +409,47 @@ export default function App() {
             </SectionCard>
 
             <SectionCard
-              title="2. Academic Context"
-              subtitle="Adds program-level context for scalable academic-career alignment reporting."
+              title={t.academicContextTitle}
+              subtitle={t.academicContextSubtitle}
               icon={<BookOpenCheck className="h-5 w-5" />}
             >
               <div className="grid gap-4 md:grid-cols-3">
                 <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-slate-700">Program / Major</span>
+                  <span className="mb-1 block text-sm font-medium text-slate-700">{t.programMajor}</span>
                   <input
                     value={academicContext.programMajor}
                     onChange={(e) => setAcademicContext((prev) => ({ ...prev, programMajor: e.target.value }))}
-                    placeholder="e.g., Information Systems"
+                    placeholder={t.programPlaceholder}
                     className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-blue-100"
                   />
                 </label>
                 <SelectField
-                  label="Track / Field"
+                  label={t.trackField}
                   value={academicContext.trackField}
                   onChange={(value) => setAcademicContext((prev) => ({ ...prev, trackField: value }))}
-                  options={trackOptions}
-                  placeholder="Select track"
+                  options={trackSelectOptions}
+                  placeholder={t.selectTrack}
                 />
                 <SelectField
-                  label="Analysis Scope"
+                  label={t.analysisScope}
                   value={academicContext.analysisScope}
                   onChange={handleScopeChange}
-                  options={analysisScopes}
-                  placeholder="Select scope"
+                  options={scopeSelectOptions}
+                  placeholder={t.selectScope}
                 />
               </div>
               {isProgramScope ? (
                 <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                  This prototype will aggregate uploaded course evidence for demonstration. Program-level analysis is part of the scalable roadmap.
+                  {t.roadmapNotice}
                 </div>
               ) : null}
             </SectionCard>
 
             <SectionCard
-              title="3. Upload Course Evidence"
-              subtitle="Upload one or more course PDFs. Current analysis uses the first evidence file and keeps the rest visible for roadmap demonstrations."
+              title={t.uploadTitle}
+              subtitle={t.uploadSubtitle}
               icon={<FileSearch className="h-5 w-5" />}
+              required
             >
               <FileDropzone
                 files={courseFiles}
@@ -386,10 +460,11 @@ export default function App() {
                 onRemove={removeEvidenceFile}
                 onLabelChange={updateEvidenceLabel}
                 onUseSample={handleUseSample}
+                language={language}
               />
               {parsedCourse ? (
                 <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                  Parsed: <span className="font-semibold">{parsedCourse.profile.course_title || 'Unnamed course'}</span> - {parsedCourse.pages} pages - {parsedCourse.extracted_characters} chars extracted.
+                  {t.parsed}: <span className="font-semibold">{parsedCourse.profile.course_title || t.unnamedCourse}</span> - {parsedCourse.pages} {t.pages} - {parsedCourse.extracted_characters} {t.charsExtracted}.
                 </div>
               ) : null}
             </SectionCard>
@@ -397,8 +472,8 @@ export default function App() {
 
           <div className="space-y-6">
             <SectionCard
-              title="4. Run Alignment Analysis"
-              subtitle="Decision-support analysis with fair handling of missing or implicit academic evidence."
+              title={t.runTitle}
+              subtitle={t.runSubtitle}
               icon={<Sparkles className="h-5 w-5" />}
             >
               <div className="space-y-4">
@@ -407,40 +482,39 @@ export default function App() {
                   disabled={loading}
                   className="w-full rounded-2xl bg-brand-600 px-5 py-4 text-base font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {loading ? 'Analyzing alignment...' : 'Analyze Alignment'}
+                  {loading ? t.analyzing : t.analyze}
                 </button>
 
                 <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-                  <p className="font-semibold text-slate-800">Fairness note</p>
+                  <p className="font-semibold text-slate-800">{t.fairnessNoteTitle}</p>
                   <p className="mt-2 leading-6">
-                    The result is based only on evidence found in the uploaded specification. Skills may exist in teaching practice or related courses
-                    even if they are not explicitly documented.
+                    {t.fairnessNote}
                   </p>
                 </div>
 
                 {selectedJob ? (
                   <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-700">
-                    <p className="font-semibold text-slate-900">Selected Job Profile</p>
+                    <p className="font-semibold text-slate-900">{t.selectedJobProfile}</p>
                     <p className="mt-2">{selectedJob.job_title} ({selectedJob.job_id})</p>
-                    <p className="mt-2 text-slate-500">{selectedJob.summary || 'No summary available.'}</p>
+                    <p className="mt-2 text-slate-500">{selectedJob.summary || t.noSummary}</p>
                   </div>
                 ) : null}
 
                 {courseFiles.length > 1 ? (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                    Multiple files are attached visually. This prototype sends the first evidence file to the current analysis endpoint.
+                    {t.multiFileNotice}
                   </div>
                 ) : null}
 
                 {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div> : null}
-                {result ? <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">Latest alignment report is ready and opened in presentation view.</div> : null}
+                {result ? <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">{t.reportReady}</div> : null}
               </div>
             </SectionCard>
           </div>
         </div>
       </div>
 
-      <AnalysisModal open={modalOpen} onClose={() => setModalOpen(false)} data={result} />
+      <AnalysisModal open={modalOpen} onClose={() => setModalOpen(false)} data={result} language={language} />
     </main>
   );
 }

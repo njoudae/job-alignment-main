@@ -42,12 +42,15 @@ class PDFService:
                 pass
 
         if not text_parts:
-            reader = PdfReader(BytesIO(content))
-            pages = len(reader.pages)
-            for page in reader.pages:
-                extracted = page.extract_text() or ""
-                if extracted.strip():
-                    text_parts.append(extracted)
+            try:
+                reader = PdfReader(BytesIO(content))
+                pages = len(reader.pages)
+                for page in reader.pages:
+                    extracted = page.extract_text() or ""
+                    if extracted.strip():
+                        text_parts.append(extracted)
+            except Exception:
+                pass
 
         full_text = normalize_text("\n".join(text_parts))
         return {"text": full_text, "pages": pages}

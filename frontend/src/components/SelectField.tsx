@@ -10,20 +10,25 @@ interface Props {
   options: Array<string | Option>;
   placeholder?: string;
   disabled?: boolean;
+  required?: boolean;
 }
 
-export default function SelectField({ label, value, onChange, options, placeholder, disabled }: Props) {
+export default function SelectField({ label, value, onChange, options, placeholder, disabled, required }: Props) {
   const normalizedOptions: Option[] = options.map((option) =>
     typeof option === 'string' ? { label: option, value: option } : option,
   );
 
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className="text-sm font-medium text-slate-700">
+        {label}
+        {required ? <span className="ms-1 text-rose-600">*</span> : null}
+      </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
+        required={required}
         className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-brand-500 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
       >
         <option value="">{placeholder ?? 'Select an option'}</option>

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -33,6 +33,7 @@ class MatchRequest(BaseModel):
     course_profile: CourseProfile
     selected_job: CleanedJob
     academic_context: dict[str, Any] | None = None
+    language: Literal["en", "ar"] = "en"
 
 
 class MatchResponse(BaseModel):
@@ -40,3 +41,4 @@ class MatchResponse(BaseModel):
     selected_job: CleanedJob
     result: MatchResult
     academic_context: dict[str, Any] | None = None
+    language: Literal["en", "ar"] = "en"

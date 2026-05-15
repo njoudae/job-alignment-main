@@ -12,7 +12,13 @@ course_service = CourseService()
 SAMPLE_FILES_DIR = Path(__file__).resolve().parents[2] / "sample_files"
 
 
-def _validate_pdf_content(filename: str, content: bytes) -> None:
+def _validate_pdf_content(filename: str | None, content: bytes) -> None:
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded PDF is empty.")
+
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded file is missing a filename.")
+
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -23,6 +29,8 @@ def _validate_pdf_content(filename: str, content: bytes) -> None:
 
 def _parse_pdf_content(content: bytes):
     extraction = PDFService.extract_text(content)
+    if extraction["pages"] <= 0:
+        raise HTTPException(status_code=400, detail="The PDF could not be opened or contains no readable pages.")
     if not extraction["text"].strip():
         raise HTTPException(status_code=400, detail="No readable text could be extracted from the PDF.")
     return course_service.parse_course_profile(extraction["text"], extraction["pages"])
@@ -37,6 +45,8 @@ async def parse_course_pdf(file: UploadFile = File(...)):
         return _parse_pdf_content(content)
     except HTTPException:
         raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to parse course PDF: {exc}") from exc
 
@@ -79,5 +89,7 @@ def parse_sample_course_file(filename: str):
         return _parse_pdf_content(content)
     except HTTPException:
         raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to parse sample course PDF: {exc}") from exc

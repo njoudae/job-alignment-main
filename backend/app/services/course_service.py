@@ -26,7 +26,10 @@ def extract_json_object(text: str) -> dict:
         match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
         if not match:
             raise ValueError(f"OpenAI did not return valid JSON. Response was: {cleaned[:500]}")
-        return json.loads(match.group(0))
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"OpenAI did not return parseable JSON. Response was: {cleaned[:500]}") from exc
 
 
 class CourseService:

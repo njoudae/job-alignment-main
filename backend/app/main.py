@@ -26,6 +26,11 @@ def health_check() -> dict:
     return {"status": "ok", "app": "academic-career-alignment-api"}
 
 
+@app.get("/health")
+def root_health_check() -> dict:
+    return {"status": "ok", "app": "academic-career-alignment-api"}
+
+
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(course_router, prefix="/api/course", tags=["Course"])
 app.include_router(match_router, prefix="/api", tags=["Match"])

@@ -1,3 +1,5 @@
+import type { Language } from '../i18n';
+
 export interface CleanedJob {
   job_id: string;
   job_title: string;
@@ -107,4 +109,5 @@ export interface MatchResponse {
   selected_job: CleanedJob;
   result: MatchResult;
   academic_context?: AcademicContext | null;
+  language?: Language;
 }

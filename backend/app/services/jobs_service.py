@@ -16,6 +16,7 @@ class JobsService:
     def __init__(self, jobs_path: str) -> None:
         self.jobs_path = Path(jobs_path)
         self._jobs_cache: list[CleanedJob] | None = None
+        self._job_detail_cache: dict[str, CleanedJob] = {}
         self._hierarchy_cache: JobHierarchyResponse | None = None
         self._data_source = "not_loaded"
         self._cache_status = "cold"
@@ -40,6 +41,64 @@ class JobsService:
         self._data_source = "neon"
         return jobs
 
+    def _read_index_from_database(self) -> list[dict[str, Any]] | None:
+        if not settings.database_url:
+            return None
+
+        import psycopg
+        from psycopg import sql
+
+        table = sql.Identifier(settings.jobs_table)
+        with psycopg.connect(settings.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        select
+                          payload->>'job_id' as job_id,
+                          payload->>'job_title' as job_title,
+                          payload->>'minimum_education' as minimum_education,
+                          payload->>'main_group' as main_group,
+                          payload->>'main_group_id' as main_group_id,
+                          payload->>'sub_group' as sub_group,
+                          payload->>'sub_group_id' as sub_group_id,
+                          payload->>'secondary_group' as secondary_group,
+                          payload->>'secondary_group_id' as secondary_group_id,
+                          payload->>'unit' as unit,
+                          payload->>'unit_id' as unit_id
+                        from {}
+                        order by job_id
+                        """
+                    ).format(table)
+                )
+                columns = [desc[0] for desc in cursor.description]
+                rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+        if not rows:
+            raise ValueError("No jobs were found in the configured Neon database.")
+        self._data_source = "neon"
+        return rows
+
+    def _read_job_from_database(self, job_id: str) -> dict[str, Any] | None:
+        if not settings.database_url:
+            return None
+
+        import psycopg
+        from psycopg import sql
+
+        with psycopg.connect(settings.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("select payload from {} where job_id = %s limit 1").format(sql.Identifier(settings.jobs_table)),
+                    (job_id,),
+                )
+                row = cursor.fetchone()
+
+        if not row or not isinstance(row[0], dict):
+            return None
+        self._data_source = "neon"
+        return row[0]
+
     def _read_raw(self) -> list[dict[str, Any]]:
         database_jobs = self._read_from_database()
         if database_jobs is not None:
@@ -54,6 +113,13 @@ class JobsService:
             raise ValueError("Jobs JSON must be a list of job objects.")
         self._data_source = "local_json"
         return data
+
+    def _read_raw_index(self) -> list[dict[str, Any]]:
+        database_jobs = self._read_index_from_database()
+        if database_jobs is not None:
+            return database_jobs
+
+        return self._read_raw()
 
     def _clean_job(self, raw: dict[str, Any]) -> CleanedJob:
         technical_skills, soft_from_technical = split_skills(raw.get("technical_skills"))
@@ -112,7 +178,7 @@ class JobsService:
             self._cache_status = "hit"
             return self._hierarchy_cache
 
-        jobs = self.load_jobs()
+        jobs = self._load_jobs_index()
         bucket: dict[tuple[str, str, str, str], list[CleanedJob]] = {}
         for job in jobs:
             specialization = job.secondary_group or job.sub_group or "Other Specializations"
@@ -149,6 +215,45 @@ class JobsService:
         self._hierarchy_cache = response
         return response
 
+    def _load_jobs_index(self) -> list[CleanedJob]:
+        if self._jobs_cache is not None:
+            self._cache_status = "hit"
+            return self._jobs_cache
+
+        self._cache_status = "miss"
+        raw_jobs = self._read_raw_index()
+        cleaned: list[CleanedJob] = []
+        seen: set[str] = set()
+        for raw in raw_jobs:
+            job = self._clean_job(raw)
+            if not job.job_id and not job.job_title:
+                continue
+            key = f"{job.job_id}|{canonical_key(job.job_title)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(job)
+        cleaned.sort(key=lambda x: (x.minimum_education or "", x.main_group or "", x.unit or "", x.job_title))
+        self._jobs_cache = cleaned
+        return cleaned
+
+    def get_job(self, job_id: str) -> CleanedJob:
+        if job_id in self._job_detail_cache:
+            return self._job_detail_cache[job_id]
+
+        database_job = self._read_job_from_database(job_id)
+        if database_job is not None:
+            job = self._clean_job(database_job)
+            self._job_detail_cache[job_id] = job
+            return job
+
+        for raw in self._read_raw():
+            job = self._clean_job(raw)
+            if job.job_id == job_id:
+                self._job_detail_cache[job_id] = job
+                return job
+        raise KeyError(f"Job {job_id} was not found.")
+
     def source_info(self) -> dict[str, Any]:
         jobs = self.load_jobs()
         return {
@@ -161,6 +266,7 @@ class JobsService:
 
     def clear_cache(self) -> None:
         self._jobs_cache = None
+        self._job_detail_cache = {}
         self._hierarchy_cache = None
         self._cache_status = "cleared"
 

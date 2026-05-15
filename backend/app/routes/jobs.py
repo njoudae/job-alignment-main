@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas.jobs import JobHierarchyResponse, JobSearchResponse
+from app.schemas.jobs import CleanedJob, JobHierarchyResponse, JobSearchResponse
 from app.services.jobs_service import get_jobs_service
 
 router = APIRouter()
@@ -33,5 +33,15 @@ def search_jobs(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, 
     try:
         items = get_jobs_service().search(q, limit)
         return JobSearchResponse(items=items, total=len(items))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/detail/{job_id}", response_model=CleanedJob)
+def get_job_detail(job_id: str) -> CleanedJob:
+    try:
+        return get_jobs_service().get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

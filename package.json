@@ -1,0 +1,15 @@
+{
+  "name": "academic-career-alignment",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Demo-ready academic-career alignment prototype with a React frontend and FastAPI backend.",
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "node scripts/dev-backend.mjs",
+    "build": "npm --prefix frontend run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

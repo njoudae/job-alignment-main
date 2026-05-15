@@ -1,9 +1,24 @@
 import axios from 'axios';
 import type { AcademicContext, CourseParseResponse, JobHierarchyResponse, MatchResponse, CleanedJob, CourseProfile, SampleCourseFile } from '../types';
+import type { Language } from '../i18n';
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').replace(/\/$/, '');
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
+  baseURL: API_BASE_URL,
+  timeout: 120000,
 });
+
+export const apiConfig = {
+  baseUrl: API_BASE_URL,
+};
+
+export const healthApi = {
+  async check() {
+    const { data } = await api.get<{ status: string }>('/health');
+    return data;
+  },
+};
 
 export const jobsApi = {
   async getHierarchy() {
@@ -12,6 +27,10 @@ export const jobsApi = {
   },
   async search(q: string) {
     const { data } = await api.get<{ items: CleanedJob[]; total: number }>('/jobs/search', { params: { q } });
+    return data;
+  },
+  async getDetail(jobId: string) {
+    const { data } = await api.get<CleanedJob>(`/jobs/detail/${encodeURIComponent(jobId)}`);
     return data;
   },
 };
@@ -24,9 +43,7 @@ export const courseApi = {
   async parse(file: File) {
     const formData = new FormData();
     formData.append('file', file);
-    const { data } = await api.post<CourseParseResponse>('/course/parse', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    const { data } = await api.post<CourseParseResponse>('/course/parse', formData);
     return data;
   },
   async parseSample(filename: string) {
@@ -36,11 +53,12 @@ export const courseApi = {
 };
 
 export const matchApi = {
-  async analyze(courseProfile: CourseProfile, selectedJob: CleanedJob, academicContext?: AcademicContext) {
+  async analyze(courseProfile: CourseProfile, selectedJob: CleanedJob, academicContext: AcademicContext | undefined, language: Language) {
     const { data } = await api.post<MatchResponse>('/match', {
       course_profile: courseProfile,
       selected_job: selectedJob,
       academic_context: academicContext,
+      language,
     });
     return data;
   },
